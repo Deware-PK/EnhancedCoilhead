@@ -11,7 +11,8 @@ namespace EnhancedCoilhead
 {
     // Multiplayer glue (via LethalNetworkAPI):
     //  1. host -> clients: config snapshot, so everyone runs the host's values
-    //  2. client -> host: voice noises, so the host-side AI can hear clients talking
+    //  2. client -> host: noises that only exist on the client's machine (voice chat, items it drops),
+    //     so the host-side AI can hear them
     //
     // Fully event driven (no per-frame polling), so it keeps working even if the BepInEx
     // manager object (and with it Plugin.Update) gets destroyed:
@@ -20,11 +21,12 @@ namespace EnhancedCoilhead
     //  - GameNetworkManager.SetInstanceValuesBackToDefault (postfix) -> left the lobby
     internal static class NetSync
     {
-        public const int VoiceNoiseId = 75; // StartOfRound.DetectVoiceChatAmplitude
+        public const int VoiceNoiseId = 75;  // StartOfRound.DetectVoiceChatAmplitude (local player only)
+        public const int DropNoiseId  = 941; // GrabbableObject.PlayDropSFX (item owner only)
 
         private static LNetworkMessage<string> _config;   // host -> clients (config snapshot)
         private static LNetworkMessage<string> _request;  // client -> host (please send config; payload = client mod version)
-        private static LNetworkMessage<string> _noise;    // client -> host (voice noise)
+        private static LNetworkMessage<string> _noise;    // client -> host (relayed noise)
 
         public static void Init(ConfigFile config)
         {
@@ -33,7 +35,7 @@ namespace EnhancedCoilhead
             _request = LNetworkMessage<string>.Create("EnhancedCoilhead.ConfigRequest",
                 onServerReceived: OnConfigRequest);
             _noise   = LNetworkMessage<string>.Create("EnhancedCoilhead.Noise",
-                onServerReceived: (data, sender) => OnNoiseFromClient(data));
+                onServerReceived: OnNoiseFromClient);
 
             config.SettingChanged += OnSettingChanged;
             LNetworkUtils.OnNetworkStart += OnNetworkStart;
@@ -118,10 +120,23 @@ namespace EnhancedCoilhead
 
         private static bool IsHostOnline() => LNetworkUtils.IsConnected && LNetworkUtils.IsHostOrServer;
 
-        // ---------------- voice noise relay ----------------
+        // ---------------- noise relay ----------------
 
-        // Client side: called when this client's copy of a Coil-Head detected a noise.
-        public static void RelayVoiceNoise(SpringManAI coil, Vector3 pos, float loudness)
+        // Noises the game raises only on the machine that made them; the host never hears them unless relayed.
+        // Other noises (footsteps, noisemakers, flashlight, boombox) already play on the host.
+        private static bool IsRelayable(int noiseID) => noiseID == VoiceNoiseId || noiseID == DropNoiseId;
+
+        // Client side: should this noise be forwarded? (host re-checks everything anyway)
+        public static bool ShouldRelay(int noiseID, float loudness)
+        {
+            if (!IsRelayable(noiseID) || !Tuning.NoiseHearing.Value) return false;
+            float min = noiseID == VoiceNoiseId ? Tuning.MinVoiceLoudness.Value : Tuning.MinNoiseLoudness.Value;
+            return loudness >= min;
+        }
+
+        // Client side: called when this client's copy of a Coil-Head detected a relayable noise.
+        // Format: netId|x|y|z|loudness|noiseID
+        public static void RelayNoise(SpringManAI coil, Vector3 pos, float loudness, int noiseID)
         {
             if (!LNetworkUtils.IsConnected || LNetworkUtils.IsHostOrServer) return;
 
@@ -131,14 +146,15 @@ namespace EnhancedCoilhead
                 coil.NetworkObjectId.ToString(inv),
                 pos.x.ToString("R", inv), pos.y.ToString("R", inv), pos.z.ToString("R", inv),
                 loudness.ToString("R", inv),
+                noiseID.ToString(inv),
             });
 
             try { _noise.SendServer(data); }
-            catch (Exception e) { Plugin.Log.LogWarning($"[sync] could not relay voice noise: {e.Message}"); }
+            catch (Exception e) { Plugin.Log.LogWarning($"[sync] could not relay noise {noiseID}: {e.Message}"); }
         }
 
         // Host side
-        private static void OnNoiseFromClient(string data)
+        private static void OnNoiseFromClient(string data, ulong sender)
         {
             try
             {
@@ -147,6 +163,8 @@ namespace EnhancedCoilhead
                 ulong netId = ulong.Parse(p[0], inv);
                 var pos = new Vector3(float.Parse(p[1], inv), float.Parse(p[2], inv), float.Parse(p[3], inv));
                 float loud = float.Parse(p[4], inv);
+                int noiseID = p.Length >= 6 ? int.Parse(p[5], inv) : VoiceNoiseId; // 0.1.0 clients sent voice only
+                if (!IsRelayable(noiseID)) return; // only accept what a client may legitimately relay
 
                 var nm = NetworkManager.Singleton;
                 if (nm == null || !nm.IsServer) return;
@@ -154,11 +172,11 @@ namespace EnhancedCoilhead
                 var coil = no.GetComponent<SpringManAI>();
                 if (coil == null) return;
 
-                CoilBrain.Get(coil).Hear(coil, pos, loud, VoiceNoiseId);
+                CoilBrain.Get(coil).Hear(coil, pos, loud, noiseID, viaClient: true);
             }
             catch (Exception e)
             {
-                Plugin.Log.LogWarning($"[sync] bad noise message from a client: {e.Message}");
+                Plugin.Log.LogWarning($"[sync] bad noise message from client {sender}: {e.Message}");
             }
         }
     }

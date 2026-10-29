@@ -58,7 +58,7 @@ The mod patches the game with [HarmonyX](https://github.com/BepInEx/HarmonyX).
 
 - **Stats** (`src/CoilheadPatches.cs`, `src/Tuning.cs`): IL transpilers replace hard-coded numbers in `SpringManAI` (speeds, ranges, timers, damage) with live config reads. Each transpiler logs whether it matched, so a game update that moves things shows up as a warning in the log instead of a crash. The real cooldown length is the `20f` set inside `SetCoilheadOnCooldownClientRpc`, which overrides the value in `Update`.
 - **Behaviour** (`src/CoilBrain.cs`, `src/AiPatches.cs`): a per-Coil-Head "brain" is driven by postfixes on `DoAIInterval` and `Update`. It takes over the wander phase by marking the game's own search routine as "in progress" so the vanilla random search does not restart, then steers with `SetDestinationToPosition`. Noise comes in through `EnemyAI.DetectNoise`, and victim choice by re-scoring after `TargetClosestPlayer`.
-- **Multiplayer** (`src/NetSync.cs`): uses LethalNetworkAPI. The host sends a config snapshot to clients on join and whenever a value changes. Voice noise (ID 75) is produced only on the speaker's machine, so clients forward it to the host's AI.
+- **Multiplayer** (`src/NetSync.cs`): uses LethalNetworkAPI. The host sends a config snapshot to clients on join and whenever a value changes. Two noises are produced only on one client's machine, so clients forward them to the host's AI: voice chat (ID 75, speaker only) and dropped items (ID 941, item owner only). With `LogNoises` on, the host log shows `via=client` for relayed noises and `via=local` for ones it heard itself.
 - **LethalConfig** (`src/LethalConfigSetup.cs`): kept in its own class and compiled only if LethalConfig is present, so the mod still loads without it.
 
 ### Project layout
@@ -103,7 +103,7 @@ The build references the game's DLLs from `GameDir` and does not copy them anywh
 ## Known limits
 
 - Multiplayer has had limited testing; please include both host and client `LogOutput.log` in bug reports.
-- Only voice chat is relayed from clients to the host. Other noises are produced on every machine and already reach the host.
+- Clients relay voice chat and dropped-item noises to the host. Other noises the game only raises on the owner's machine (if any) are not heard from clients; footsteps, noisemakers, flashlights and boomboxes already reach the host.
 - Other mods that rewrite the same Coil-Head code may conflict; the transpilers log a warning if their expected code is missing.
 
 ## Contributing

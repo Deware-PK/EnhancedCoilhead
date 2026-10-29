@@ -140,10 +140,12 @@ namespace EnhancedCoilhead
         }
 
         // ---------- noise ----------
-        public void Hear(SpringManAI c, Vector3 pos, float loudness, int noiseID)
+        // viaClient: true when a client relayed this noise (see NetSync), false when the host heard it itself.
+        public void Hear(SpringManAI c, Vector3 pos, float loudness, int noiseID, bool viaClient)
         {
+            string via = viaClient ? "client" : "local";
             if (Tuning.LogNoises.Value)
-                Plugin.Log.LogInfo($"[noise] loudness={loudness:F2} id={noiseID} dist={Vector3.Distance(c.transform.position, pos):F1} state={c.currentBehaviourStateIndex}");
+                Plugin.Log.LogInfo($"[noise] loudness={loudness:F2} id={noiseID} dist={Vector3.Distance(c.transform.position, pos):F1} state={c.currentBehaviourStateIndex} via={via}");
 
             if (!Tuning.NoiseHearing.Value) return;
             if (!c.IsServer || c.isEnemyDead) return;
@@ -157,7 +159,7 @@ namespace EnhancedCoilhead
 
             SetGoal(pos, Mode.Investigate, loudness);
             if (Tuning.LogNoises.Value)
-                Plugin.Log.LogInfo($"[noise] -> investigating {pos} (loudness {loudness:F2})");
+                Plugin.Log.LogInfo($"[noise] -> investigating {pos} (loudness {loudness:F2}, id {noiseID}, via={via})");
         }
 
         // ---------- victim selection ----------

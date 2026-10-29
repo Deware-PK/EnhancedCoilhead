@@ -27,11 +27,12 @@ namespace EnhancedCoilhead
         {
             if (__instance is SpringManAI coil)
             {
-                // Server-side AI handles it directly; a client forwards its own voice to the host.
+                // Server-side AI handles it directly. A client forwards the noises that only exist on its
+                // own machine (its voice, items it drops) so the host-side AI can hear them too.
                 if (coil.IsServer)
-                    CoilBrain.Get(coil).Hear(coil, noisePosition, noiseLoudness, noiseID);
-                else if (noiseID == NetSync.VoiceNoiseId && Tuning.NoiseHearing.Value && noiseLoudness >= Tuning.MinVoiceLoudness.Value)
-                    NetSync.RelayVoiceNoise(coil, noisePosition, noiseLoudness);
+                    CoilBrain.Get(coil).Hear(coil, noisePosition, noiseLoudness, noiseID, viaClient: false);
+                else if (NetSync.ShouldRelay(noiseID, noiseLoudness))
+                    NetSync.RelayNoise(coil, noisePosition, noiseLoudness, noiseID);
             }
         }
     }

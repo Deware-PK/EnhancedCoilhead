@@ -19,7 +19,7 @@ Everything is in the in-game LethalConfig menu and can be changed live. The host
 ## Known limits
 
 - **Multiplayer is lightly tested.** Everything was tested solo as host. Config sync to clients and relaying clients' voice to the host are new; please report problems with your `LogOutput.log` from both host and client.
-- Only voice chat is relayed from clients to the host. Other noises are produced on every machine and already reach the host.
+- Clients relay voice chat and dropped-item noises to the host. Footsteps, noisemakers, flashlights and boomboxes already reach the host on their own.
 - This is an early release; behaviour is balanced for a harder game, so expect it to be scary. Lower `ChaseSpeedMultiplier` and raise `CooldownDuration` if it is too much.
 
 ## Credits
