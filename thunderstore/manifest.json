@@ -1,6 +1,6 @@
 {
   "name": "EnhancedCoilhead",
-  "version_number": "0.1.0",
+  "version_number": "0.2.0",
   "website_url": "https://github.com/Deware-PK/EnhancedCoilhead",
   "description": "[v81] Smarter, scarier Coil-Head: systematic patrol, hears noises and voices, picks its victim, and a host-synced config.",
   "dependencies": [

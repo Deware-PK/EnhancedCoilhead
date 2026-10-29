@@ -34,6 +34,6 @@ namespace EnhancedCoilhead
     {
         public const string GUID = "com.phakin.enhancedcoilhead";
         public const string NAME = "EnhancedCoilhead";
-        public const string VERSION = "0.1.0";
+        public const string VERSION = "0.2.0";
     }
 }

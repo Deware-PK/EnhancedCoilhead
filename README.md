@@ -6,10 +6,10 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod for **Lethal Company** that 
 
 ## Features
 
-- **Systematic patrol**: instead of wandering at random, it sweeps the map's AI nodes (nearest unvisited first), remembers what it has checked, and starts a new round once the map is covered. After losing a chase it first checks where it last saw a player.
-- **Hears noises**: dropped items, noisemakers, tools and other sounds pull it toward the source. Louder sounds win over quieter ones.
-- **Hears voice chat**: shouting draws it in (normal talking does not, by default). Clients' voice is relayed to the host.
-- **Picks its victim**: favours players who are not looking at it and players far from their teammates, instead of always taking the closest. It holds a target for a few seconds to avoid flip-flopping.
+- **Systematic patrol**: instead of wandering at random, it sweeps the map's AI nodes (nearest unvisited first), remembers what it has checked, and starts a new round once the map is covered. After losing a chase it first checks the place where it last saw its victim.
+- **Hears noises**: footsteps, dropped items, noisemakers, tools and other sounds pull it toward the source. Louder sounds win over quieter ones.
+- **Hears voice chat**: shouting draws it in (normal talking does not, by default). Clients' voice and dropped items are relayed to the host.
+- **Picks its victim**: favours players who are not looking at it and players far from their teammates, instead of always taking the closest. It holds a target for a few seconds (`TargetHoldTime`) to avoid flip-flopping, also when the chase moves to another player's machine.
 - **Tunable stats**: chase speed, wander speed, notice range, how long it chases, how long it rests, and damage.
 - **Audio controls**: local volume and audible distance (per player, not synced).
 
@@ -19,7 +19,7 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod for **Lethal Company** that 
 - [LethalNetworkAPI](https://thunderstore.io/c/lethal-company/p/xilophor/LethalNetworkAPI/)
 - [LethalConfig](https://thunderstore.io/c/lethal-company/p/AinaVT/LethalConfig/) (optional; without it, edit the config file instead)
 
-**All players should install the mod.** A client's local settings are overridden by the host's while in a lobby.
+**All players should install the same version of the mod.** A client's local settings are overridden by the host's while in a lobby, and parts of the chase (speed, giving up, target choice, damage) run on the chased player's machine.
 
 ## Configuration
 
@@ -50,15 +50,15 @@ Values are in the in-game LethalConfig menu and in `BepInEx/config/com.phakin.en
 | Audio | `VolumeMultiplier` | 1 | 1 | no |
 | Audio | `AudibleDistanceMultiplier` | 1 | 1 | no |
 
-Noise loudness reference (from the game): dropped item 0.5, flashlight 0.4 to 0.65, shovel/knife/noisemakers about 0.8, boombox 0.9, voice chat 0.6 (talking) to 0.9 (shouting). Turn on `LogNoises` to see what the Coil-Head hears and tune the thresholds.
+Noise loudness reference (from the game): footsteps 0.4 walking / 0.6 sprinting, dropped item 0.5, flashlight 0.4 to 0.65, shovel/knife/noisemakers about 0.8, boombox 0.9, voice chat 0.6 (talking) to 0.9 (shouting). Turn on `LogNoises` to see what the Coil-Head hears (and its `[target]` / `[patrol]` decisions) and tune the thresholds. At the default `MinNoiseLoudness` of 0.3 it reacts to normal walking; 0.5 limits it to sprinting and louder.
 
 ## How it works
 
 The mod patches the game with [HarmonyX](https://github.com/BepInEx/HarmonyX).
 
 - **Stats** (`src/CoilheadPatches.cs`, `src/Tuning.cs`): IL transpilers replace hard-coded numbers in `SpringManAI` (speeds, ranges, timers, damage) with live config reads. Each transpiler logs whether it matched, so a game update that moves things shows up as a warning in the log instead of a crash. The real cooldown length is the `20f` set inside `SetCoilheadOnCooldownClientRpc`, which overrides the value in `Update`.
-- **Behaviour** (`src/CoilBrain.cs`, `src/AiPatches.cs`): a per-Coil-Head "brain" is driven by postfixes on `DoAIInterval` and `Update`. It takes over the wander phase by marking the game's own search routine as "in progress" so the vanilla random search does not restart, then steers with `SetDestinationToPosition`. Noise comes in through `EnemyAI.DetectNoise`, and victim choice by re-scoring after `TargetClosestPlayer`.
-- **Multiplayer** (`src/NetSync.cs`): uses LethalNetworkAPI. The host sends a config snapshot to clients on join and whenever a value changes. Two noises are produced only on one client's machine, so clients forward them to the host's AI: voice chat (ID 75, speaker only) and dropped items (ID 941, item owner only). With `LogNoises` on, the host log shows `via=client` for relayed noises and `via=local` for ones it heard itself.
+- **Behaviour** (`src/CoilBrain.cs`, `src/AiPatches.cs`): a per-Coil-Head "brain" is driven by postfixes on `DoAIInterval` and `Update`. It takes over the wander phase by marking the game's own search routine as "in progress" so the vanilla random search does not restart, then steers with `SetDestinationToPosition`. Noise comes in through `EnemyAI.DetectNoise`, and victim choice by re-scoring after `TargetClosestPlayer`. During a chase the game gives ownership of the Coil-Head to the chased player's client, so target choice runs there; a new owner first holds the player it was handed to for `TargetHoldTime`.
+- **Multiplayer** (`src/NetSync.cs`): uses LethalNetworkAPI and is fully event-driven (no per-frame polling). A client requests the host's config when it connects (`LNetworkUtils.OnNetworkStart`), the host pushes it again whenever a synced value changes (`ConfigFile.SettingChanged`), and a client drops the host's values when it leaves the lobby (postfix on `GameNetworkManager.SetInstanceValuesBackToDefault`). The host warns in its log if a client runs a different mod version. Two noises are produced only on one client's machine, so clients forward them to the host's AI: voice chat (ID 75, speaker only) and dropped items (ID 941, item owner only). With `LogNoises` on, the host log shows `via=client` for relayed noises and `via=local` for ones it heard itself.
 - **LethalConfig** (`src/LethalConfigSetup.cs`): kept in its own class and compiled only if LethalConfig is present, so the mod still loads without it.
 
 ### Project layout
@@ -72,7 +72,7 @@ EnhancedCoilhead/
     CoilheadPatches.cs     IL transpilers (stats)
     CoilBrain.cs           patrol, noise, targeting, audio
     AiPatches.cs           Harmony hooks into the game
-    NetSync.cs             config sync + voice relay
+    NetSync.cs             config sync + noise relay
     LethalConfigSetup.cs   in-game config menu
   thunderstore/            package files (manifest, README, icon, LICENSE)
 ```
@@ -96,13 +96,13 @@ The build references the game's DLLs from `GameDir` and does not copy them anywh
 
 ### Packaging for Thunderstore
 
-1. Copy `bin/Release/netstandard2.1/EnhancedCoilhead.dll` into `thunderstore/`.
-2. Zip the files inside `thunderstore/` (the files must be at the root of the zip, not in a folder).
-3. Bump the version in both `thunderstore/manifest.json` and `PluginInfo.VERSION` in `src/Plugin.cs`, and add a line to `thunderstore/CHANGELOG.md`.
+1. Bump the version in both `thunderstore/manifest.json` and `PluginInfo.VERSION` in `src/Plugin.cs`, and add an entry to `thunderstore/CHANGELOG.md`.
+2. Build with `dotnet build -c Release`, then copy `bin/Release/netstandard2.1/EnhancedCoilhead.dll` into `thunderstore/`.
+3. Zip the files inside `thunderstore/` (the files must be at the root of the zip, not in a folder) and upload it under the same package name and team.
 
 ## Known limits
 
-- Multiplayer has had limited testing; please include both host and client `LogOutput.log` in bug reports.
+- Multiplayer is tested with one host and one client (two game instances over LAN), not yet in full lobbies. Please include both host and client `LogOutput.log` in bug reports.
 - Clients relay voice chat and dropped-item noises to the host. Other noises the game only raises on the owner's machine (if any) are not heard from clients; footsteps, noisemakers, flashlights and boomboxes already reach the host.
 - Other mods that rewrite the same Coil-Head code may conflict; the transpilers log a warning if their expected code is missing.
 

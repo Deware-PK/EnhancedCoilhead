@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using GameNetcodeStuff;
+using Unity.Netcode;
 using UnityEngine;
 
 namespace EnhancedCoilhead
@@ -35,6 +36,10 @@ namespace EnhancedCoilhead
 
         private PlayerControllerB _currentTarget;
         private float _lockUntil;
+        private ulong _lastOwner = ulong.MaxValue;
+        private float _lastRetarget = -999f;
+        private float _chaseStartedAt = -999f;
+        private float _lastIntervalTime = -1f;
 
         // ---------- called every frame (Update postfix) ----------
         public void OnFrame(SpringManAI c)
@@ -44,22 +49,34 @@ namespace EnhancedCoilhead
             if (!c.IsServer || c.isEnemyDead) return;
             int state = c.currentBehaviourStateIndex;
 
+            if (_prevState != 1 && state == 1)
+            {
+                _chaseStartedAt = Time.time;
+                _hadTarget = false;
+            }
+
+            // Remember where the chased player was the last time the Coil-Head could actually see them.
             if (state == 1 && Time.time >= _nextSample)
             {
                 _nextSample = Time.time + 0.25f;
-                var near = NearestTargetable(c, 80f);
-                if (near != null)
+                var target = ChasedPlayer(c);
+                if (target != null && c.PlayerIsTargetable(target)
+                    && c.CheckLineOfSightForPosition(target.gameplayCamera.transform.position, 180f, 60))
                 {
-                    _lastSeenPos = near.transform.position;
+                    _lastSeenPos = target.transform.position;
                     _hadTarget = true;
                 }
             }
 
-            // Chase just ended: go check the last place a player was near us.
+            // Chase just ended: go check where it last saw its victim.
             if (_prevState == 1 && state == 0)
             {
                 if (_hadTarget && Tuning.SmartPatrol.Value)
+                {
                     SetGoal(_lastSeenPos, Mode.Investigate, 0.5f);
+                    if (Tuning.LogNoises.Value)
+                        Plugin.Log.LogInfo($"[patrol] chase ended: checking last seen position {_lastSeenPos}");
+                }
                 _hadTarget = false;
             }
             _prevState = state;
@@ -106,8 +123,18 @@ namespace EnhancedCoilhead
         public void OnInterval(SpringManAI c)
         {
             if (!c.IsServer) return;
+            float now = Time.time;
+            // Capped: OnInterval only runs while the host owns the Coil-Head, so gaps can be long.
+            float dt = _lastIntervalTime < 0f ? 0f : Mathf.Min(now - _lastIntervalTime, 0.5f);
+            _lastIntervalTime = now;
+
             if (c.isEnemyDead || c.currentBehaviourStateIndex != 0) { Release(c); return; }
-            if (c.onCooldownPhase > 0f) return; // vanilla holds position while resting
+            if (c.onCooldownPhase > 0f)
+            {
+                // Vanilla holds position while resting; pause the goal's timeout so it is still valid afterwards.
+                if (_hasGoal) _goalDeadline += dt;
+                return;
+            }
 
             bool wantControl = Tuning.SmartPatrol.Value || (_mode == Mode.Investigate && _hasGoal);
             if (!wantControl) { Release(c); return; }
@@ -163,13 +190,32 @@ namespace EnhancedCoilhead
         }
 
         // ---------- victim selection ----------
+        // Runs on whichever machine owns the Coil-Head. During a chase vanilla hands ownership to the
+        // chased player's client, so each handoff lands on a different machine with its own CoilBrain.
+        // To keep the hysteresis/lock meaningful across machines, a fresh owner treats the player who
+        // owns the enemy (= the player vanilla handed it to) as the current target and holds it first.
         public void ReTarget(SpringManAI c)
         {
             if (!Tuning.SmartTargeting.Value) return;
             var players = StartOfRound.Instance.allPlayerScripts;
             if (players == null) return;
 
-            if (_currentTarget != null && Time.time < _lockUntil && c.PlayerIsTargetable(_currentTarget))
+            float now = Time.time;
+            ulong owner = c.OwnerClientId;
+            bool freshSession = now - _lastRetarget > 1f; // not evaluated recently on this machine
+            _lastRetarget = now;
+
+            if (freshSession || owner != _lastOwner)
+            {
+                _lastOwner = owner;
+                bool hostChaseStart = c.IsServer && now - _chaseStartedAt < 1f;
+                _currentTarget = hostChaseStart ? null : PlayerByClientId(players, owner);
+                _lockUntil = _currentTarget != null ? now + Tuning.TargetHoldTime.Value : 0f;
+                if (Tuning.LogNoises.Value)
+                    Plugin.Log.LogInfo($"[target] owner {owner}: start holding {(_currentTarget != null ? _currentTarget.playerUsername : "nobody (new chase)")}");
+            }
+
+            if (_currentTarget != null && now < _lockUntil && c.PlayerIsTargetable(_currentTarget))
             {
                 c.targetPlayer = _currentTarget;
                 return;
@@ -192,9 +238,28 @@ namespace EnhancedCoilhead
             if (_currentTarget != null && curScore < float.MaxValue && bestScore > curScore * 0.75f)
                 best = _currentTarget;
 
+            if (best != _currentTarget && Tuning.LogNoises.Value)
+                Plugin.Log.LogInfo($"[target] switch {(_currentTarget != null ? _currentTarget.playerUsername : "none")} -> {best.playerUsername} (score {curScore:F1} -> {bestScore:F1})");
+
             _currentTarget = best;
-            _lockUntil = Time.time + Tuning.TargetHoldTime.Value;
+            _lockUntil = now + Tuning.TargetHoldTime.Value;
             c.targetPlayer = best;
+        }
+
+        // The player the Coil-Head is chasing, as seen from the host: vanilla gives ownership to the
+        // chased player's client, so the owner is the victim; if the host owns it, use its own targetPlayer.
+        private static PlayerControllerB ChasedPlayer(SpringManAI c)
+        {
+            if (c.OwnerClientId == NetworkManager.ServerClientId || c.IsOwner) return c.targetPlayer;
+            return PlayerByClientId(StartOfRound.Instance.allPlayerScripts, c.OwnerClientId);
+        }
+
+        private static PlayerControllerB PlayerByClientId(PlayerControllerB[] players, ulong clientId)
+        {
+            if (players == null) return null;
+            foreach (var p in players)
+                if (p != null && p.isPlayerControlled && p.actualClientId == clientId) return p;
+            return null;
         }
 
         private static float Score(SpringManAI c, PlayerControllerB p, PlayerControllerB[] players, Vector3 eye)
@@ -286,21 +351,6 @@ namespace EnhancedCoilhead
             if (!_hijacked) return;
             _hijacked = false;
             c.searchForPlayers.inProgress = false; // vanilla restarts its search by itself
-        }
-
-        private static PlayerControllerB NearestTargetable(SpringManAI c, float maxDist)
-        {
-            PlayerControllerB best = null;
-            float bestD = maxDist;
-            var players = StartOfRound.Instance.allPlayerScripts;
-            if (players == null) return null;
-            foreach (var p in players)
-            {
-                if (p == null || !c.PlayerIsTargetable(p)) continue;
-                float d = Vector3.Distance(c.transform.position, p.transform.position);
-                if (d < bestD) { bestD = d; best = p; }
-            }
-            return best;
         }
 
         private static float Flat(Vector3 a, Vector3 b)
