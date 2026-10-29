@@ -96,8 +96,9 @@ namespace EnhancedCoilhead
         }
 
         // client side: apply the host's values
-        public static void ApplySnapshot(string snapshot)
+        public static int ApplySnapshot(string snapshot)
         {
+            int applied = 0;
             foreach (var part in snapshot.Split(';'))
             {
                 int eq = part.IndexOf('=');
@@ -106,16 +107,32 @@ namespace EnhancedCoilhead
                 foreach (var s in All)
                 {
                     if (!s.Synced || s.Key != key) continue;
-                    try { s.SetOverride(val); }
+                    try { s.SetOverride(val); applied++; }
                     catch (Exception e) { Plugin.Log.LogWarning($"[sync] bad value for {key}: {val} ({e.Message})"); }
                     break;
                 }
             }
+            return applied;
         }
 
-        public static void ClearOverrides()
+        // Returns true if any override was active.
+        public static bool ClearOverrides()
         {
-            foreach (var s in All) s.ClearOverride();
+            bool had = false;
+            foreach (var s in All)
+            {
+                if (s.HasOverride) had = true;
+                s.ClearOverride();
+            }
+            return had;
+        }
+
+        public static bool IsSynced(ConfigEntryBase entry)
+        {
+            string key = entry.Definition.Section + "." + entry.Definition.Key;
+            foreach (var s in All)
+                if (s.Key == key) return s.Synced;
+            return false;
         }
 
         public static void Bind(ConfigFile c)

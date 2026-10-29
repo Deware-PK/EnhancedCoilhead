@@ -28,8 +28,6 @@ namespace EnhancedCoilhead
             new Harmony(PluginInfo.GUID).PatchAll();
             Log.LogInfo($"{PluginInfo.NAME} {PluginInfo.VERSION} loaded");
         }
-
-        private void Update() => NetSync.Tick();
     }
 
     internal static class PluginInfo
