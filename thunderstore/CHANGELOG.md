@@ -1,7 +1,7 @@
 # Changelog
 
 ## 0.2.0
-Multiplayer fixes, tested with a host and a client (two game instances over LAN).
+Multiplayer fixes, tested with a host and a client (2 players over LAN).
 
 - **Fixed: host settings never reached clients.** Sync relied on a per-frame update that does not run in Lethal Company, so clients silently used their own values. Sync is now event-driven: clients request the host's settings when they join, the host pushes changes as soon as a synced value is edited, and clients drop the host's values when they leave the lobby.
 - **Fixed: items dropped by clients were never heard.** The game only raises that noise on the client who dropped the item; clients now forward it to the host, like voice chat.
