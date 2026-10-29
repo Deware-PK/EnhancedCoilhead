@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>EnhancedCoilhead</AssemblyName>
+    <RootNamespace>EnhancedCoilhead</RootNamespace>
+    <Version>0.1.0</Version>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RestoreAdditionalProjectSources>https://nuget.bepinex.dev/v3/index.json</RestoreAdditionalProjectSources>
+
+    <!-- Edit these if your paths differ -->
+    <GameDir>C:\Program Files (x86)\Steam\steamapps\common\Lethal Company</GameDir>
+    <ProfileDir>$(APPDATA)\Thunderstore Mod Manager\DataFolder\LethalCompany\profiles\Magician</ProfileDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Core" Version="5.4.21" PrivateAssets="all" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <Managed>$(GameDir)\Lethal Company_Data\Managed</Managed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp"><HintPath>$(Managed)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.Netcode.Runtime"><HintPath>$(Managed)\Unity.Netcode.Runtime.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(Managed)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(Managed)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AudioModule"><HintPath>$(Managed)\UnityEngine.AudioModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AIModule"><HintPath>$(Managed)\UnityEngine.AIModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!-- LethalNetworkAPI (hard dependency: config sync + voice relay) -->
+  <ItemGroup>
+    <Reference Include="LethalNetworkAPI"><HintPath>$(ProfileDir)\BepInEx\plugins\xilophor-LethalNetworkAPI\LethalNetworkAPI\LethalNetworkAPI.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!-- LethalConfig: only referenced if installed in the dev profile -->
+  <PropertyGroup>
+    <LethalConfigDll>$(ProfileDir)\BepInEx\plugins\AinaVT-LethalConfig\LethalConfig.dll</LethalConfigDll>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(LethalConfigDll)')">
+    <Reference Include="LethalConfig"><HintPath>$(LethalConfigDll)</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <PropertyGroup Condition="Exists('$(LethalConfigDll)')">
+    <DefineConstants>$(DefineConstants);HAS_LETHALCONFIG</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Copy the built DLL into the dev profile automatically -->
+  <Target Name="CopyToProfile" AfterTargets="Build" Condition="Exists('$(ProfileDir)\BepInEx\plugins')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ProfileDir)\BepInEx\plugins\EnhancedCoilhead" />
+    <Message Importance="high" Text="Copied to $(ProfileDir)\BepInEx\plugins\EnhancedCoilhead" />
+  </Target>
+
+</Project>

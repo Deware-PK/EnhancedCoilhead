@@ -1,0 +1,30 @@
+# Build output
+bin/
+obj/
+*.pdb
+*.deps.json
+
+# IDE / OS
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Release artifacts (built locally, uploaded to Thunderstore, never committed)
+*.zip
+thunderstore/*.dll
+
+# Never commit game files or anything decompiled from them
+decompiled/
+Assembly-CSharp*.dll
+UnityEngine*.dll
+Unity.Netcode*.dll
+DissonanceVoip.dll
+*.il
+
+# Logs / local BepInEx data
+LogOutput.log
+*.log
